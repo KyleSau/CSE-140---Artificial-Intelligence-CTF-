@@ -1,6 +1,8 @@
 from pacai.agents.capture.capture import CaptureAgent
 from pacai.agents.capture.reflex import ReflexCaptureAgent
 from pacai.core.directions import Directions
+from pacai.util.priorityQueue import PriorityQueue
+from pacai.agents.search.base import SearchAgent
 import random
 
 def createTeam(firstIndex, secondIndex, isRed,
@@ -56,6 +58,57 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             'successorScore': 100,
             'distanceToFood': -1
         }
+        
+    def getEnemyDistances(self, gameState):
+        # Puts all the distances of the enemies in a list.
+        # ...
+        return 0
+        
+    def getNearestEnemyDistance(self, gameState):
+        return min(getEnemyDistances(gameState))
+        
+    def enemyDistanceHeuristic(self, state, gameState):
+        # Calculates the Euclidean distance from our agent's position to the nearest enemy agent's position.
+        # This heuristic function is used for the h-value in A* Search Algorithm to avoid an enemy identical to collision.
+        
+        #agentPosition
+        #enemyPosition
+        
+        #distance = euclidean(agentPosition, enemyPosition)
+        heuristic = euclidean(agentPosition, enemyPosition)
+        return heuristic
+    
+    def aStarSearch(self, problem, gameState, heuristic):
+        start_state = problem.getStartState()
+        fringe = PriorityQueue()
+        h = heuristic(start_state, gameState)
+        g = 0
+        f = g + h
+        start_node = (start_state, [], g)
+        fringe.push(start_node, f)
+        explored = []
+        while not fringe.isEmpty():
+          current_node = fringe.pop()
+          state = current_node[0]
+          path = current_node[1]
+          current_cost = current_node[2]
+          if state not in explored:
+            explored.append(state)
+            if problem.isGoalState(state):
+              return path
+            successors = problem.getSuccessors(state)
+            for successor in successors:
+              current_path = list(path)
+              successor_state = successor[0]
+              move = successor[1]
+              g = successor[2] + current_cost
+              h = heuristic(successor_state, gameState)
+              if successor_state not in explored:
+                current_path.append(move)
+                f = g + h
+                successor_node = (successor_state, current_path, g)
+                fringe.push(successor_node, f)
+        return []
     
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
@@ -144,6 +197,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             'invaderDistance': -10,
             'stop': -100,
             'reverse': -2,
-            'distanceToFood': -1, # ADDED
-            'boundaryDistance': -10 # ADDED
+            'distanceToFood': -1,
+            'boundaryDistance': -10
         }
