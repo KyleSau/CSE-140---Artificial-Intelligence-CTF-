@@ -2,7 +2,8 @@ from pacai.agents.capture.capture import CaptureAgent
 from pacai.agents.capture.reflex import ReflexCaptureAgent
 from pacai.core.directions import Directions
 from pacai.util.priorityQueue import PriorityQueue
-from pacai.agents.search.base import SearchAgent
+from pacai.core.search.position import PositionSearchProblem
+from pacai.core.distance import euclidean
 import random
 
 def createTeam(firstIndex, secondIndex, isRed,
@@ -19,6 +20,44 @@ def createTeam(firstIndex, secondIndex, isRed,
         OffensiveReflexAgent(firstIndex),
         DefensiveReflexAgent(secondIndex),
     ]
+    
+class AnyFoodSearchProblem(PositionSearchProblem):
+    """
+    A search problem for finding a path to any food.
+
+    This search problem is just like the PositionSearchProblem,
+    but has a different goal test, which you need to fill in below.
+    The state space and successor function do not need to be changed.
+
+    The class definition above, `AnyFoodSearchProblem(PositionSearchProblem)`,
+    inherits the methods of `pacai.core.search.position.PositionSearchProblem`.
+
+    You can use this search problem to help you fill in
+    the `ClosestDotSearchAgent.findPathToClosestDot` method.
+
+    Additional methods to implement:
+
+    `pacai.core.search.position.PositionSearchProblem.isGoal`:
+    The state is Pacman's position.
+    Fill this in with a goal test that will complete the problem definition.
+    """
+
+    def __init__(self, gameState, start = None):
+        super().__init__(gameState, goal = None, start = start)
+
+        # Store the food for later reference.
+        self.food = gameState.getFood()
+        self.startingState = start
+
+    def getStartState(self):
+        return self.startingState
+
+    def isGoalState(self, state):
+        x, y = state
+
+        if self.food[x][y]:
+            return True
+        return False
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
     """
@@ -30,58 +69,17 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def __init__(self, index, **kwargs):
         super().__init__(index)
         
-    def chooseAction(self, gameState):
-        actions = gameState.getLegalActions(self.index)
-        values = [self.evaluate(gameState, a) for a in actions]
-        maxValue = max(values)
-        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
-        return random.choice(bestActions)
-
-    def getFeatures(self, gameState, action):
-        features = {}
-        successor = self.getSuccessor(gameState, action)
-        features['successorScore'] = self.getScore(successor)
-
-        # Compute distance to the nearest food.
-        foodList = self.getFood(successor).asList()
-
-        # This should always be True, but better safe than sorry.
-        if (len(foodList) > 0):
-            myPos = successor.getAgentState(self.index).getPosition()
-            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-            features['distanceToFood'] = minDistance
-
-        return features
-
-    def getWeights(self, gameState, action):
-        return {
-            'successorScore': 100,
-            'distanceToFood': -1
-        }
-        
-    def getEnemyDistances(self, gameState):
-        # Puts all the distances of the enemies in a list.
-        # ...
-        return 0
-        
-    def getNearestEnemyDistance(self, gameState):
-        return min(getEnemyDistances(gameState))
-        
-    def enemyDistanceHeuristic(self, state, gameState):
-        # Calculates the Euclidean distance from our agent's position to the nearest enemy agent's position.
-        # This heuristic function is used for the h-value in A* Search Algorithm to avoid an enemy identical to collision.
-        
-        #agentPosition
-        #enemyPosition
-        
-        #distance = euclidean(agentPosition, enemyPosition)
-        heuristic = euclidean(agentPosition, enemyPosition)
-        return heuristic
+    def getNearestGhostPosition(self, gameState):
+        enemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        nonScaredGhosts = {a.getPosition(): self.getMazeDistance(gameState.getAgentPosition(self.index), a.getPosition()) for a in enemies if not a.isPacman()}
+        return min(nonScaredGhosts, key=nonScaredGhosts.get)
     
+    """
     def aStarSearch(self, problem, gameState, heuristic):
         start_state = problem.getStartState()
         fringe = PriorityQueue()
-        h = heuristic(start_state, gameState)
+        print(start_state, gameState)
+        h = heuristic(gameState)
         g = 0
         f = g + h
         start_node = (start_state, [], g)
@@ -96,19 +94,127 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             explored.append(state)
             if problem.isGoalState(state):
               return path
-            successors = problem.getSuccessors(state)
-            for successor in successors:
-              current_path = list(path)
-              successor_state = successor[0]
-              move = successor[1]
-              g = successor[2] + current_cost
-              h = heuristic(successor_state, gameState)
-              if successor_state not in explored:
-                current_path.append(move)
-                f = g + h
-                successor_node = (successor_state, current_path, g)
-                fringe.push(successor_node, f)
+            for successor in gameState.getLegalActions(self.index):
+                # successor = self.getSuccessor(gameState, action)
+                current_path = list(path)
+                successor_state = successor[0]
+                move = successor[1]
+                g = successor[2] + current_cost
+                h = heuristic(gameState)
+                if successor_state not in explored:
+                    current_path.append(move)
+                    f = g + h
+                    successor_node = (successor_state, current_path, g)
+                    fringe.push(successor_node, f)
         return []
+        """
+       
+    def aStarSearch(self, problem, gameState, heuristic):
+        """
+        Search the node that has the lowest combined cost and heuristic first.
+        """
+
+        # *** Your Code Here ***
+        fringe = PriorityQueue()
+        start_state = problem.getStartState()
+        h = heuristic(start_state, gameState)
+        g = 0
+        f = g + h
+        start_node = (start_state, [], g)
+        fringe.push(start_node, f)
+        visitedStates = set()
+        while not fringe.isEmpty():
+            state, action, cost = fringe.pop()
+            if problem.isGoal(state):
+                return action
+            if state not in visitedStates:
+                visitedStates.add(state)
+                for child in problem.successorStates(state):
+                    fringe.push([child[0], action + [child[1]], cost + child[2]], cost + heuristic(child[0], problem))
+        return None
+        
+    def cheesyAStar(position1, position2, gameState, enemies):
+        enemyGhosts = [a for a in enemies if not a.isPacman() and a.getPosition() is not None]
+        walls = gameState.getWalls()
+        x1, y1 = position1
+        x2, y2 = position2
+
+        if (walls[x1][y1] or enemyGhosts[x1][y1]):
+            raise ValueError('Position1 is a wall: ' + str(position1))
+
+        if (walls[x2][y2] or enemyGhosts[x2][y2]):
+            raise ValueError('Position2 is a wall: ' + str(position2))
+
+        prob = PositionSearchProblem(gameState, start = position1, goal = position2)
+
+        return len(search.breadthFirstSearch(prob))
+   
+    def chooseAction(self, gameState):
+        """
+            problem = AnyFoodSearchProblem(gameState, gameState.getAgentPosition(self.index))
+            heuristic = self.enemyDistanceHeuristic
+            return self.aStarSearch(problem, gameState, heuristic)
+        """
+        """
+        problem = AnyFoodSearchProblem(gameState, self.index)
+        action = self.aStarSearch(problem, gameState, self.enemyDistanceHeuristic)[0]
+        print("action: " , action)
+        return action
+        """
+        actions = gameState.getLegalActions(self.index)
+ 
+        values = [self.evaluate(gameState, a) for a in actions]
+ 
+        maxValue = max(values)
+        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+ 
+        return random.choice(bestActions)
+        
+    # Calculates the Euclidean distance from our agent's position to the nearest enemy agent's position.
+    # This heuristic function is used for the h-value in A* Search Algorithm to avoid an enemy similar to wall collision.
+    def enemyDistanceHeuristic(self, state, gameState):
+    
+        # Our agent's position.
+        agentPosition = gameState.getAgentPosition(self.index)
+        print("agent pos:  ", agentPosition)
+        
+        # The position of the enemy ghost with the lowest Euclidean distance from our agent.
+        opponents = self.getOpponents(gameState)
+        print("opp ", gameState.getAgentPosition(opponents[0]))
+        enemyPosition =  gameState.getAgentPosition(opponents[0])# self.getNearestGhostPosition(agentPosition)
+        
+        # distance = euclidean(pos1, pos2)
+        x1, y1 = agentPosition
+        print("agent:  ", agentPosition)
+        x2, y2 = enemyPosition
+        print("enemy:  ", enemyPosition)
+        heuristic = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 # euclidean(gameState, enemyPosition)
+        
+        return heuristic
+
+    def getFeatures(self, gameState, action):
+        features = {}
+        successor = self.getSuccessor(gameState, action)
+        features['successorScore'] = self.getScore(successor)
+
+        # Compute distance to the nearest food.
+        foodList = self.getFood(successor).asList()
+
+        # This should always be True, but better safe than sorry.
+        enemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        if (len(foodList) > 0):
+            myPos = successor.getAgentState(self.index).getPosition()
+            minDistance = min([self.cheesyAStar(self, myPos, food, gameState, enemies) for food in foodList]) # cheesyAStar was previously getMazeDistance
+            features['distanceToFood'] = minDistance
+
+        return features
+
+    def getWeights(self, gameState, action):
+        return {
+            'successorScore': 100,
+            'distanceToFood': -1
+        }
+
     
 class DefensiveReflexAgent(ReflexCaptureAgent):
     """
