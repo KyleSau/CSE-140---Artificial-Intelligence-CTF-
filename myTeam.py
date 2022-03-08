@@ -162,9 +162,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return action
         """
         actions = gameState.getLegalActions(self.index)
- 
         values = [self.evaluate(gameState, a) for a in actions]
- 
         maxValue = max(values)
         bestActions = [a for a, v in zip(actions, values) if v == maxValue]
  
@@ -204,15 +202,55 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         enemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
         if (len(foodList) > 0):
             myPos = successor.getAgentState(self.index).getPosition()
-            minDistance = min([self.cheesyAStar(self, myPos, food, gameState, enemies) for food in foodList]) # cheesyAStar was previously getMazeDistance
+            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList]) # cheesyAStar was previously getMazeDistance
             features['distanceToFood'] = minDistance
+            
+        capsules = self.getCapsules(successor)
+        if len(capsules) > 0:
+            myPos = successor.getAgentState(self.index).getPosition()
+            minCapsuleDistance = min([self.getMazeDistance(myPos, capsule) for capsule in capsules])
+            if minCapsuleDistance == 0:
+                features['distanceToCapsule'] = 0
+            else:
+                features['distanceToCapsule'] = 1 / (minCapsuleDistance + 1)
+        else:
+            features['distanceToCapsule'] = 100
+
+        opponents = []
+        opponents = self.getOpponents(gameState)
+        minOpponentDist = float('inf')
+        myPos = successor.getAgentState(self.index).getPosition()
+        for opp in opponents:
+            pos = successor.getAgentState(opp).getPosition()
+            currentOpponentDist = self.getMazeDistance(myPos, pos)
+            if (currentOpponentDist < minOpponentDist):
+                minOpponentDist = currentOpponentDist
+   
+        
+            if successor.getAgentState(opp).getScaredTimer() == 0:
+                features['distanceToOpponent'] = 1 / minOpponentDist
+            if successor.getAgentState(opp).getScaredTimer() > 0:
+                 features['distanceToOpponent'] = -1000
+        else:
+            features['distanceToOpponent'] = 0
+       
+        if (action == Directions.STOP):
+            features['stop'] = 1 
+
+        rev = Directions.REVERSE[gameState.getAgentState(self.index).getDirection()]
+        if (action == rev):
+            features['reverse'] = 1
 
         return features
 
     def getWeights(self, gameState, action):
         return {
             'successorScore': 100,
-            'distanceToFood': -1
+            'distanceToFood': -1,
+            'distanceToCapsule': 100, # ADDED
+            'distanceToOpponent': -3, # ADDED
+            'stop': -100, # ADDED
+            'reverse': -2, # ADDED
         }
 
     
