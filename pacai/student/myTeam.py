@@ -1,21 +1,14 @@
-from pacai.util import reflection
 from pacai.agents.capture.capture import CaptureAgent
-from pacai.util import util
+from pacai.agents.capture.reflex import ReflexCaptureAgent
 from pacai.core.directions import Directions
-import random
-from pacai.util.probability import flipCoin
-from pacai.core.actions import Actions
-from pacai.core.search import search
+from pacai.util.priorityQueue import PriorityQueue
 from pacai.core.search.position import PositionSearchProblem
-from pacai.core.distance import maze, euclidean
-from pacai.student.search import breadthFirstSearch
-import pickle
-from os.path import exists
-
+from pacai.core.distance import euclidean
+import random
 
 def createTeam(firstIndex, secondIndex, isRed,
         first = 'pacai.agents.capture.dummy.DummyAgent',
-        second = 'pacai.agents.capture.defense.DefensiveReflexAgent'):
+        second = 'pacai.agents.capture.dummy.DummyAgent'):
     """
     This function should return a list of two agents that will form the capture team,
     initialized using firstIndex and secondIndex as their agent indexed.
@@ -23,385 +16,331 @@ def createTeam(firstIndex, secondIndex, isRed,
     and will be False if the blue team is being created.
     """
 
-    firstAgent = reflection.qualifiedImport(first)
-    secondAgent = reflection.qualifiedImport(second)
-
     return [
-        TeamAgent(firstIndex, 0),
-        secondAgent(secondIndex),
+        OffensiveReflexAgent(firstIndex),
+        DefensiveReflexAgent(secondIndex),
     ]
-
-class ReflexCaptureAgent(CaptureAgent):
+    
+class AnyFoodSearchProblem(PositionSearchProblem):
     """
-    A base class for reflex agents that chooses score-maximizing actions.
+    A search problem for finding a path to any food.
+
+    This search problem is just like the PositionSearchProblem,
+    but has a different goal test, which you need to fill in below.
+    The state space and successor function do not need to be changed.
+
+    The class definition above, `AnyFoodSearchProblem(PositionSearchProblem)`,
+    inherits the methods of `pacai.core.search.position.PositionSearchProblem`.
+
+    You can use this search problem to help you fill in
+    the `ClosestDotSearchAgent.findPathToClosestDot` method.
+
+    Additional methods to implement:
+
+    `pacai.core.search.position.PositionSearchProblem.isGoal`:
+    The state is Pacman's position.
+    Fill this in with a goal test that will complete the problem definition.
+    """
+
+    def __init__(self, gameState, start = None):
+        super().__init__(gameState, goal = None, start = start)
+
+        # Store the food for later reference.
+        self.food = gameState.getFood()
+        self.startingState = start
+
+    def getStartState(self):
+        return self.startingState
+
+    def isGoalState(self, state):
+        x, y = state
+
+        if self.food[x][y]:
+            return True
+        return False
+
+class OffensiveReflexAgent(ReflexCaptureAgent):
+    """
+    A reflex agent that seeks food.
+    This agent will give you an idea of what an offensive agent might look like,
+    but it is by no means the best or only way to build an offensive agent.
     """
 
     def __init__(self, index, **kwargs):
-        super().__init__(index, **kwargs)
-        self.weights = {}
+        super().__init__(index)
+        
+    def getNearestGhostPosition(self, gameState):
+        enemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        nonScaredGhosts = {a.getPosition(): self.getMazeDistance(gameState.getAgentPosition(self.index), a.getPosition()) for a in enemies if not a.isPacman()}
+        return min(nonScaredGhosts, key=nonScaredGhosts.get)
+    
+    """
+    def aStarSearch(self, problem, gameState, heuristic):
+        start_state = problem.getStartState()
+        fringe = PriorityQueue()
+        print(start_state, gameState)
+        h = heuristic(gameState)
+        g = 0
+        f = g + h
+        start_node = (start_state, [], g)
+        fringe.push(start_node, f)
+        explored = []
+        while not fringe.isEmpty():
+          current_node = fringe.pop()
+          state = current_node[0]
+          path = current_node[1]
+          current_cost = current_node[2]
+          if state not in explored:
+            explored.append(state)
+            if problem.isGoalState(state):
+              return path
+            for successor in gameState.getLegalActions(self.index):
+                # successor = self.getSuccessor(gameState, action)
+                current_path = list(path)
+                successor_state = successor[0]
+                move = successor[1]
+                g = successor[2] + current_cost
+                h = heuristic(gameState)
+                if successor_state not in explored:
+                    current_path.append(move)
+                    f = g + h
+                    successor_node = (successor_state, current_path, g)
+                    fringe.push(successor_node, f)
+        return []
+        """
+       
+    def aStarSearch(self, problem, gameState, heuristic):
+        """
+        Search the node that has the lowest combined cost and heuristic first.
+        """
 
+        # *** Your Code Here ***
+        fringe = PriorityQueue()
+        start_state = problem.getStartState()
+        h = heuristic(start_state, gameState)
+        g = 0
+        f = g + h
+        start_node = (start_state, [], g)
+        fringe.push(start_node, f)
+        visitedStates = set()
+        while not fringe.isEmpty():
+            state, action, cost = fringe.pop()
+            if problem.isGoal(state):
+                return action
+            if state not in visitedStates:
+                visitedStates.add(state)
+                for child in problem.successorStates(state):
+                    fringe.push([child[0], action + [child[1]], cost + child[2]], cost + heuristic(child[0], problem))
+        return None
+        
+    def cheesyAStar(position1, position2, gameState, enemies):
+        enemyGhosts = [a for a in enemies if not a.isPacman() and a.getPosition() is not None]
+        walls = gameState.getWalls()
+        x1, y1 = position1
+        x2, y2 = position2
+
+        if (walls[x1][y1] or enemyGhosts[x1][y1]):
+            raise ValueError('Position1 is a wall: ' + str(position1))
+
+        if (walls[x2][y2] or enemyGhosts[x2][y2]):
+            raise ValueError('Position2 is a wall: ' + str(position2))
+
+        prob = PositionSearchProblem(gameState, start = position1, goal = position2)
+
+        return len(search.breadthFirstSearch(prob))
+   
     def chooseAction(self, gameState):
         """
-        Picks among the actions with the highest return from `ReflexCaptureAgent.evaluate`.
+            problem = AnyFoodSearchProblem(gameState, gameState.getAgentPosition(self.index))
+            heuristic = self.enemyDistanceHeuristic
+            return self.aStarSearch(problem, gameState, heuristic)
         """
-
-        return self.getAction(gameState)
-
-    def getSuccessor(self, gameState, action):
         """
-        Finds the next successor which is a grid position (location tuple).
+        problem = AnyFoodSearchProblem(gameState, self.index)
+        action = self.aStarSearch(problem, gameState, self.enemyDistanceHeuristic)[0]
+        print("action: " , action)
+        return action
         """
-
-        successor = gameState.generateSuccessor(self.index, action)
-        pos = successor.getAgentState(self.index).getPosition()
-
-        if (pos != util.nearestPoint(pos)):
-            # Only half a grid position was covered.
-            return successor.generateSuccessor(self.index, action)
-        else:
-            return successor
+        actions = gameState.getLegalActions(self.index)
+        values = [self.evaluate(gameState, a) for a in actions]
+        maxValue = max(values)
+        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+ 
+        return random.choice(bestActions)
+        
+    # Calculates the Euclidean distance from our agent's position to the nearest enemy agent's position.
+    # This heuristic function is used for the h-value in A* Search Algorithm to avoid an enemy similar to wall collision.
+    def enemyDistanceHeuristic(self, state, gameState):
+    
+        # Our agent's position.
+        agentPosition = gameState.getAgentPosition(self.index)
+        print("agent pos:  ", agentPosition)
+        
+        # The position of the enemy ghost with the lowest Euclidean distance from our agent.
+        opponents = self.getOpponents(gameState)
+        print("opp ", gameState.getAgentPosition(opponents[0]))
+        enemyPosition =  gameState.getAgentPosition(opponents[0])# self.getNearestGhostPosition(agentPosition)
+        
+        # distance = euclidean(pos1, pos2)
+        x1, y1 = agentPosition
+        print("agent:  ", agentPosition)
+        x2, y2 = enemyPosition
+        print("enemy:  ", enemyPosition)
+        heuristic = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5 # euclidean(gameState, enemyPosition)
+        
+        return heuristic
 
     def getFeatures(self, gameState, action):
-        """
-        Returns a dict of features for the state.
-        The keys match up with the return from `ReflexCaptureAgent.getWeights`.
-        """
-
-        successor = self.getSuccessor(gameState, action)
-
-        return {
-            'successorScore': self.getScore(successor)
-        }
-
-    def update(self, state, action, reward):
-        """
-        Updates weights on transition according to the following formula:
-        w(i + 1) = w(i) + alpha * correction * feature where
-        correction = (reward * discount * V(s')) - Q(s, a)
-        """
-        nextState = self.getSuccessor(state, action)
-        for feat, f in self.featExtractor.getFeatures(state, action).items():
-            if feat not in self.weights:
-                self.weights[feat] = 0.0
-            correction = reward + self.getDiscountRate() * self.getValue(nextState)
-            correction -= self.getQValue(state, action)
-            self.weights[feat] += self.getAlpha() * correction * f
-
-    def getQValue(self, state, action):
-        """
-        Get the Q-Value for a state, action pair.
-        """
-        return sum([self.weights[feature] * f if feature in self.weights else
-                    0.0 for feature, f in
-                    self.featExtractor.getFeatures(state, action).items()])
-
-    def final(self, state):
-        """
-        Called at the end of each game.
-        """
-
-        # Call the super-class final method.
-        super().final(state)
-
-        # Did we finish training?
-        if self.episodesSoFar == self.numTraining:
-            # You might want to print your weights here for debugging.
-            # *** Your Code Here ***
-            print("Final Weights: ")
-            for state_action, weight in self.weights.items():
-                print("{}    {}".format(state_action, weight))
-
-    def getValue(self, state):
-        """
-        Return the value of the best action in a state.
-        I.E., the value of the action that solves: `max_action Q(state, action)`.
-        Where the max is over legal actions.
-        Note that if there are no legal actions, which is the case at the terminal state,
-        you should return a value of 0.0.
-
-        This method pairs with `QLearningAgent.getPolicy`,
-        which returns the actual best action.
-        Whereas this method returns the value of the best action.
-        """
-        if len(state.getLegalActions(self.index)) == 0:
-            return 0.0
-        return max([self.getQValue(state, action) for action in state.getLegalActions(self.index)])
-
-    def getAction(self, state):
-        rand_ac = random.choice(state.getLegalActions(self.index))
-        return rand_ac if flipCoin(self.getEpsilon()) else self.getPolicy(state)
-
-    def getPolicy(self, state):
-        """
-        Return the best action in a state.
-        I.E., the action that solves: `max_action Q(state, action)`.
-        Where the max is over legal actions.
-        Note that if there are no legal actions, which is the case at the terminal state,
-        you should return a value of None.
-
-        This method pairs with `QLearningAgent.getValue`,
-        which returns the value of the best action.
-        Whereas this method returns the best action itself.
-        """
-        all_actions = list(state.getLegalActions(self.index))
-        if len(all_actions) == 0:
-            return None
-        i = 0
-        while i < len(all_actions):
-            if self.getQValue(state, all_actions[i]) != self.getValue(state):
-                del all_actions[i]
-                continue
-            i += 1
-        return random.choice(all_actions)
-
-class TeamAgent(CaptureAgent):
-    """
-    A base class for reflex agents that chooses score-maximizing actions.
-    """
-
-    def __init__(self, index, whichAgent, **kwargs):
-        super().__init__(index, **kwargs)
-        self.whichAgent = whichAgent
-        self.epsilon = 0.2
-        self.gamma = 0.95
-        self.alpha = 0.05
-        self.weights  ={}
-        if exists('weights.pickle'):
-            with open('weights.pickle', 'rb') as f:
-                self.weights = pickle.load(f)
-        # self.weights = {'bias'  :  7.24187586664831,
-        # '#-of-ghosts-1-step-away'  :  -8.081741961287042,
-        # 'closest-food' :   -0.32191107412668146,
-        # 'eats-food'  :  6.934986318078202,
-        # 'scared-ghost-timer'  :  3.61021620382729,
-        # 'closest-capsule'  :  0.0048304370972912965,
-        # 'eats-capsule' :   0.13602267844540306,
-        # 'closest-scared-ghost'  :  13.946460551342293}
-        self.qvalues = {}
-        self.statehist = []
-
-    def getEpsilon(self):
-        return self.epsilon
-
-    def getDiscountRate(self):
-        return self.gamma
-
-    def getAlpha(self):
-        return self.alpha
-
-    def chooseAction(self, gameState):
-        """
-        Picks among the actions with the highest return from `ReflexCaptureAgent.evaluate`.
-        """
-        return self.getAction(gameState)
-
-    def getSuccessor(self, gameState, action):
-        """
-        Finds the next successor which is a grid position (location tuple).
-        """
-
-        successor = gameState.generateSuccessor(self.index, action)
-        pos = successor.getAgentState(self.index).getPosition()
-
-        if (pos != util.nearestPoint(pos)):
-            # Only half a grid position was covered.
-            return successor.generateSuccessor(self.index, action)
-        else:
-            return successor
-
-    def getFeatures(self, gameState, action):
-        """
-        Returns a dict of features for the state.
-        The keys match up with the return from `ReflexCaptureAgent.getWeights`.
-        """
-
-        successor = self.getSuccessor(gameState, action)
-
-        return {
-            'successorScore': self.getScore(successor)
-        }
-
-    def update(self, state, action, reward):
-        """
-        Updates weights on transition according to the following formula:
-        w(i + 1) = w(i) + alpha * correction * feature where
-        correction = (reward * discount * V(s')) - Q(s, a)
-        """
-        nextState = self.getSuccessor(state, action)
-        for feat, f in self.getFeatures(state, action).items():
-            if feat not in self.weights:
-                self.weights[feat] = 0.0
-            correction = reward + self.getDiscountRate() * self.getValue(nextState)
-            correction -= self.getQValue(state, action)
-            self.weights[feat] += self.getAlpha() * correction * f
-
-    def getQValue(self, state, action):
-        """
-        Get the Q-Value for a state, action pair.
-        """
-        return sum([self.weights[feature] * f if feature in self.weights else
-                    0.0 for feature, f in
-                    self.getFeatures(state, action).items()])
-
-    def final(self, state):
-        """
-        Called at the end of each game.
-        """
-
-        # Call the super-class final method.
-        super().final(state)
-
-        # Did we finish training?
-        print("Final Weights: ")
-        for state_action, weight in self.weights.items():
-            print("{}    {}".format(state_action, weight))
-
-        with open('weights.pickle', 'wb') as f:
-            pickle.dump(self.weights, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def getValue(self, state):
-        """
-        Return the value of the best action in a state.
-        I.E., the value of the action that solves: `max_action Q(state, action)`.
-        Where the max is over legal actions.
-        Note that if there are no legal actions, which is the case at the terminal state,
-        you should return a value of 0.0.
-
-        This method pairs with `QLearningAgent.getPolicy`,
-        which returns the actual best action.
-        Whereas this method returns the value of the best action.
-        """
-        if len(state.getLegalActions(self.index)) == 0:
-            return 0.0
-        return max([self.getQValue(state, action) for action in state.getLegalActions(self.index)])
-
-    def getAction(self, state):
-        rand_ac = random.choice(state.getLegalActions(self.index))
-        ret_action = rand_ac
-        #if scared ghost bla bla
-        enemies = [state.getAgentState(i) for i in self.getOpponents(state)]
-        scaredGhosts = {a.getPosition(): a.getScaredTimer() for a in enemies if a.getScaredTimer() > 0}
-        if len(self.statehist) > 14:
-            del self.statehist[0]
-        if len(scaredGhosts.keys()) > 0:
-            ret_action = breadthFirstSearch(PositionSearchProblem(state, start=state.getAgentState(self.index).getPosition(), goal=min(scaredGhosts, key=scaredGhosts.get)))[0]
-            self.statehist.append(self.getSuccessor(state, ret_action).getAgentPosition(self.index))
-            return ret_action
-        if flipCoin(self.getEpsilon()):
-            self.statehist.append(self.getSuccessor(state, rand_ac).getAgentPosition(self.index))
-            return rand_ac
-        else:
-            ret_action = self.getPolicy(state)
-            self.statehist.append(self.getSuccessor(state, ret_action).getAgentPosition(self.index))
-            return ret_action
-
-    def getPolicy(self, state):
-        """
-        Return the best action in a state.
-        I.E., the action that solves: `max_action Q(state, action)`.
-        Where the max is over legal actions.
-        Note that if there are no legal actions, which is the case at the terminal state,
-        you should return a value of None.
-
-        This method pairs with `QLearningAgent.getValue`,
-        which returns the value of the best action.
-        Whereas this method returns the best action itself.
-        """
-        all_actions = list(state.getLegalActions(self.index))
-        if len(all_actions) == 0:
-            return None
-        i = 0
-        while i < len(all_actions):
-            self.update(state, all_actions[i], self.getReward(state, all_actions[i]))
-            if self.getQValue(state, all_actions[i]) != self.getValue(state):
-                del all_actions[i]
-                continue
-            i += 1
-        if state.getAgentPosition(self.index)[0] < ((state.getWalls().getWidth() / 2) - 1):# add check for red or blue team
-            foodpos = {food:self.getMazeDistance(state.getAgentState(self.index).getPosition(), food) for food in self.getFood(state).asList()}
-            ret_action = breadthFirstSearch(PositionSearchProblem(state, start=state.getAgentState(self.index).getPosition(), goal=min(foodpos, key=foodpos.get)))[0]
-            return ret_action
-        if self.isStuck():
-            foodpos = {food:self.getMazeDistance(state.getAgentState(self.index).getPosition(), food) for food in self.getFood(state).asList()}
-            ret_action = breadthFirstSearch(PositionSearchProblem(state, start=state.getAgentState(self.index).getPosition(), goal=min(foodpos, key=foodpos.get)))[0]
-            return ret_action
-        if len(all_actions) == 0:
-            return random.choice(state.getLegalActions(self.index))
-        return random.choice(all_actions)
-    def getReward(self, state, action):
-        nextState = self.getSuccessor(state, action)
-        #if pacman in the nextstate will be eaten, we want a negative reward
-        enemies = [nextState.getAgentState(i) for i in self.getOpponents(nextState)]
-        reward = (nextState.getScore() - state.getScore())
-        if self.getSuccessor(state, action).getAgentPosition(self.index) in state.getCapsules():
-            reward = 0.8
-        death_wish_if_proceed = [a for a in enemies if not a.isPacman() and (not a.isScared()) and self.getMazeDistance(a.getPosition(), nextState.getAgentPosition(self.index)) <= 1]
-        if len(death_wish_if_proceed) > 0:
-            reward = -1
-        # scared_ghosts = [a for a in enemies if not a.isPacman() and  a.isScared() and self.getMazeDistance(a.getPosition(), nextState.getAgentPosition(self.index)) <= 1]
-        # if len(scared_ghosts) > 0:
-        #     print('scared ghost')
-        #     reward = 1.5
-        return reward
-
-    def getGhostPositions(self, state, action):
-        #only caviet is its only visible ghosts we can get locations of
-        successor = self.getSuccessor(state, action)
-        opponents = [successor.getAgentState(i) for i in self.getOpponents(successor)]
-        return [a.getPosition() for a in opponents if not a.isPacman() and a.getPosition() is not None]
-
-    def getFeatures(self, state, action):
-        # Extract the grid of food and wall locations and get the ghost locations.
-        food = state.getFood()
-        capsule = state.getCapsules()
-        walls = state.getWalls()
-        ghosts = self.getGhostPositions(state, action)
-
         features = {}
-        features["bias"] = 1.0
-        #features["successorScore"] = self.getScore(self.getSuccessor(state, action))
-        # Compute the location of pacman after he takes the action.
-        next_x, next_y = self.getSuccessor(state, action).getAgentPosition(self.index)
+        successor = self.getSuccessor(gameState, action)
+        features['successorScore'] = self.getScore(successor)
 
-        # Count the number of ghosts 1-step away.
-        features["#-of-ghosts-1-step-away"] = sum((next_x, next_y) in
-                Actions.getLegalNeighbors(g, walls) for g in ghosts)
+        # Compute distance to the nearest food.
+        foodList = self.getFood(successor).asList()
 
-        # If there is no danger of ghosts then add the food feature.
-        if not features["#-of-ghosts-1-step-away"] and food[next_x][next_y]:
-            features["eats-food"] = 1.0
-        # If there is no danger of ghosts then add the capsule feature.
-        if not features["#-of-ghosts-1-step-away"] and (next_x,next_y) in capsule:
-            features["eats-capsule"] = 1.0 #maybe we want to remove bc we wanna eat capsule so we can eat ghost? idk how that works
+        # This should always be True, but better safe than sorry.
+        enemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        if (len(foodList) > 0):
+            myPos = successor.getAgentState(self.index).getPosition()
+            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList]) # cheesyAStar was previously getMazeDistance
+            features['distanceToFood'] = minDistance
+            
+        capsules = self.getCapsules(successor)
+        if len(capsules) > 0:
+            myPos = successor.getAgentState(self.index).getPosition()
+            minCapsuleDistance = min([self.getMazeDistance(myPos, capsule) for capsule in capsules])
+            if minCapsuleDistance == 0:
+                features['distanceToCapsule'] = 0
+            else:
+                features['distanceToCapsule'] = 1 / (minCapsuleDistance + 1)
+        else:
+            features['distanceToCapsule'] = 100
 
-        # enemies = [self.getSuccessor(state, action).getAgentState(i) for i in self.getOpponents(self.getSuccessor(state, action))]
-        # scaredGhosts = {a.getPosition(): a.getScaredTimer() for a in enemies}
-        # features['scared-ghost-timer'] = min(scaredGhosts.values()) / 40#divide by 40 should normalize I think
+        opponents = []
+        opponents = self.getOpponents(gameState)
+        minOpponentDist = float('inf')
+        myPos = successor.getAgentState(self.index).getPosition()
+        for opp in opponents:
+            pos = successor.getAgentState(opp).getPosition()
+            currentOpponentDist = self.getMazeDistance(myPos, pos)
+            if (currentOpponentDist < minOpponentDist):
+                minOpponentDist = currentOpponentDist
+   
+        
+            if successor.getAgentState(opp).getScaredTimer() == 0:
+                features['distanceToOpponent'] = 1 / minOpponentDist
+            if successor.getAgentState(opp).getScaredTimer() > 0:
+                 features['distanceToOpponent'] = -1000
+        else:
+            features['distanceToOpponent'] = 0
+       
+        if (action == Directions.STOP):
+            features['stop'] = 1 
 
-        # if features['scared-ghost-timer'] > 0:
-        #     features['closest-scared-ghost'] = min([self.getMazeDistance((next_x, next_y), scared) for scared in list(scaredGhosts.keys())])
-
-        foods = [self.getMazeDistance((next_x, next_y), foodz) for foodz in food.asList()]
-        dist = min(foods)
-        if dist is not None:
-            # Make the distance a number less than one otherwise the update will diverge wildly.
-            features["closest-food"] = float(dist) / (walls.getWidth() * walls.getHeight())
-
-        capsules = [self.getMazeDistance((next_x, next_y), capsulez) for capsulez in capsule]
-
-        capsuledist = min(capsules) if len(capsules) > 0 else None
-        if capsuledist is not None:
-            # Make the distance a number less than one otherwise the update will diverge wildly.
-            features["closest-capsule"] = float(capsuledist) / (walls.getWidth() * walls.getHeight())
-
-        for key in features:
-            features[key] /= 10.0
+        rev = Directions.REVERSE[gameState.getAgentState(self.index).getDirection()]
+        if (action == rev):
+            features['reverse'] = 1
 
         return features
-    def isStuck(self):
-        actionlist = {state:self.statehist.count(state) for state in self.statehist}
-        countgreaterthan2 = 0
-        for state, count in actionlist.items():
-            if count > 3:
-                countgreaterthan2 += 1
-        return True if countgreaterthan2 > 1 else False
+
+    def getWeights(self, gameState, action):
+        return {
+            'successorScore': 100,
+            'distanceToFood': -1,
+            'distanceToCapsule': 100, # ADDED
+            'distanceToOpponent': -3, # ADDED
+            'stop': -100, # ADDED
+            'reverse': -2, # ADDED
+        }
+
+    
+class DefensiveReflexAgent(ReflexCaptureAgent):
+    """
+    A reflex agent that tries to keep its side Pacman-free.
+    This is to give you an idea of what a defensive agent could be like.
+    It is not the best or only way to make such an agent.
+    """
+
+    def __init__(self, index, **kwargs):
+        super().__init__(index)
+        
+    def chooseAction(self, gameState):
+        actions = gameState.getLegalActions(self.index)
+ 
+        values = [self.evaluate(gameState, a) for a in actions]
+        maxValue = max(values)
+        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+
+        return random.choice(bestActions)
+
+    def getFeatures(self, gameState, action):
+        features = {}
+
+        successor = self.getSuccessor(gameState, action)
+        myState = successor.getAgentState(self.index)
+        myPos = myState.getPosition()
+
+        #distance to middle boundary
+        features['boundaryDistance'] = 0 # ADDED
+        
+        # Computes whether we're on defense (1) or offense (0).
+        features['onDefense'] = 1
+        if (myState.isPacman()):
+            features['onDefense'] = 0
+
+        # Computes distance to invaders we can see.
+        enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
+        invaders = [a for a in enemies if a.isPacman() and a.getPosition() is not None]
+        features['numInvaders'] = len(invaders)
+
+        if (len(invaders) > 0):
+            dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
+            features['invaderDistance'] = min(dists)
+            features['onDefense'] = 1 # ADDED
+        else: # ADDED
+            features['boundaryDistance'] = self.getBoundaryDistance(successor) # ADDED
+            minDistanceToFood = min([self.getMazeDistance(myPos, food) for food in self.getFood(successor).asList()]) # ADDED
+            features['distanceToFood'] = minDistanceToFood # ADDED
+
+        if (action == Directions.STOP):
+            features['stop'] = 1
+
+        rev = Directions.REVERSE[gameState.getAgentState(self.index).getDirection()]
+        if (action == rev):
+            features['reverse'] = 1
+
+        return features
+
+    def getBoundaryDistance(self, gameState):
+        x = int(gameState.getWalls().getWidth() / 2)
+        y = int(gameState.getWalls().getHeight() / 2)
+        values = []
+        
+        if self.red:
+            x = x - 1
+
+        for i in range(y):
+            if not gameState.hasWall(x, y):
+                values.append((x, y))
+
+        myState = gameState.getAgentState(self.index)
+        myPos = myState.getPosition()
+        minDist = float('inf')
+
+        for centervalue in values:
+            distanceToCenter = self.getMazeDistance(myPos, centervalue)
+            if distanceToCenter <= minDist:
+                minDist = distanceToCenter
+        
+        return minDist
+        
+    def getWeights(self, gameState, action):
+        return {
+            'numInvaders': -1000,
+            'onDefense': 100,
+            'invaderDistance': -10,
+            'stop': -100,
+            'reverse': -2,
+            'distanceToFood': -1,
+            'boundaryDistance': -10
+        }
